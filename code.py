@@ -7,12 +7,12 @@ import sys
 
 table_info = {} #table name : table cols
 table_names = [] #all tables in db
-query_tables = [] #all the tables mentioned in query
-aggegate_func = False  
+query_tables = [] #all the tables mentioned in query 
 dic = {}    #cols : indices in cartesian product
 aggregates = {} # col : aggregate func
 
 
+#helper function for where conditions 
 def evaluate(c1,op,c2) :
 	if(op == '=') :
 		return (c1 == c2)
@@ -31,7 +31,7 @@ def getMetaData() :
 	flag = 0
 	table_name = ''
 	try :
-		meta_file = open('./files/metadata.txt','r')
+		meta_file = open('metadata.txt','r')
 		for i in meta_file :
 			data = i.strip()
 			if(data == '<begin_table>') :
@@ -55,14 +55,15 @@ def getMetaData() :
 def processQuery(query) :
 
 	cartesian_product = []
-	query_cols = []
-	query_table_cols = []
-	token_dic = {}
+	query_cols = []   # columns present in select
+	query_table_cols = []  #all columns of the tables mentioned in query
+	token_dic = {}       
 	check_query = query.lower()
 	where = False
 	distinct = False
 	group_by = False
 	order_by = False
+	aggregate_func = False 
 
 	#Parse the query for further processing 
 	query = sqlparse.parse(query)[0]
@@ -84,7 +85,7 @@ def processQuery(query) :
 		x += 1
 
 
-	#ERROR HANDLING : 
+	#########   ERROR HANDLING :  ############
 
 	#check if SEMICOLON is present in query
 	if(check_query[-1] != ';') :
@@ -103,8 +104,8 @@ def processQuery(query) :
 		distinct = True
 
 	#check if any AGGREGATE FUNCTION is involved 
-	if('max' or 'min' or 'average' or 'count' or 'sum' in check_query and 'group by' not in check_query):
-		aggegate_func = True
+	if(('max' in check_query or 'min' in check_query or 'average' in check_query or 'count' in check_query or 'sum' in check_query) and ('group by' not in check_query)):
+		aggregate_func = True
 
 	#store table names
 	for k in str(tokens[token_dic['from'] + 2]).split(',') :
@@ -113,7 +114,6 @@ def processQuery(query) :
 	#ERROR HANDLONG for tables - check if all query_tables are present - 
 	for table in query_tables :
 		if table not in table_names :
-			print("inside table name if")
 			print(table + " not found")
 			sys.exit(0)
 
@@ -160,7 +160,7 @@ def processQuery(query) :
 
 
 
-	#EVALUATE WHERE CONDITIONS - 
+	###########    RROCESS WHERE  ######### - 
 	if(where) :
 
 		w = token_dic['where']
@@ -233,10 +233,11 @@ def processQuery(query) :
 					temp_res_list.append(row)
 
 		cartesian_product = temp_res_list
+
 	
 
 
-	#PROCESS GROUP BY :
+	######      PROCESS GROUP BY :   ########
 	if(group_by) :
 		col_index = ''
 		col = str(tokens[token_dic['groupby'] + 2])
@@ -266,6 +267,7 @@ def processQuery(query) :
 					temp_dic[i[col_index]].append(i[index])
 				else :
 					temp_dic[i[col_index]] = []
+					temp_dic[i[col_index]].append(i[index])
 
 			#evaluate the aggregate function value :
 			for i in temp_dic :
@@ -286,6 +288,8 @@ def processQuery(query) :
 				ans_dict[i].append(val)
 			dic[key] = count
 			count += 1
+		dic[query_cols[0]] = 0
+		
 		#store res in a list from ans_dict
 		for i in ans_dict :
 			temp = []
@@ -294,31 +298,12 @@ def processQuery(query) :
 				temp.append(j)
 			temp_res.append(temp)
 		cartesian_product = temp_res
-
 	
 
-	#PROCESS ORDER BY : 
-	if(order_by) :
-		col = ''
-		col_index = ''
-		temp = (tokens[token_dic['orderby'] + 2])
-		col = str(temp[0])
-		order = str(temp[-1])
-		try:
-			col_index = dic[col]
-		except KeyError :
-			print("Column in group by clause doesn't exist ")
-			sys.exit(0)
-		#sort in ascending order
-		if(order.lower() == 'asc') :
-			cartesian_product.sort(key = lambda x: x[col_index])
-		#sort in descending order 
-		else :
-			cartesian_product.sort(key = lambda x: x[col_index],reverse = True)
 
 
-	#AGGREGATE FUNCTION ON A SINGLE COLUMN
-	if(aggegate_func) :
+	########   AGGREGATE FUNCTION ON A SINGLE COLUMN   #######
+	if(aggregate_func) :
 		temp_list = []
 		col_index = dic[query_cols[0]]
 		val = ''
@@ -337,13 +322,9 @@ def processQuery(query) :
 		print(query_cols[0])
 		print(val)
 		sys.exit(0)
+	
 
-
-
-
-		
-
-	#PRINT DATA
+	########   PROCESS SELECT COLUMNS :   ########
 	index_list = []
 	res_list = []
 	#store the indices of columns need to be printed
@@ -358,6 +339,43 @@ def processQuery(query) :
 				temp_list.append(str(i[j]))
 		res_list.append(temp_list)
 
+
+	###### PROCESS DISTINCT :  #######
+	if(distinct) :
+		temp_dic = {}
+		temp_res = []
+		for i in res_list :
+			k = tuple(i)
+			if(k in temp_dic) :
+				continue
+			else :
+				temp_res.append(i)
+				temp_dic[k] = i
+		res_list = temp_res
+
+
+	#####   PROCESS ORDER BY :  #####
+	if(order_by) :
+		col = ''
+		col_index = ''
+		temp = (tokens[token_dic['orderby'] + 2])
+		col = str(temp[0])
+		order = str(temp[-1])
+		try:
+			col_index = dic[col]
+		except KeyError :
+			print("Column in order by need to be present in group by")
+			sys.exit(0)
+		#sort in ascending order
+		if(order.lower() == 'asc') :
+			cartesian_product.sort(key = lambda x: x[col_index])
+		#sort in descending order 
+		else :
+			cartesian_product.sort(key = lambda x: x[col_index],reverse = True)
+
+
+
+	#####   PRINT FINAL OUTPUT #######
 
 	#print names of columns :
 	print(','.join(query_cols))
@@ -382,13 +400,30 @@ def crossProduct(query_tables,result_list,dic) :
 				temp = temp + 1
 
 	#storing each file data in a 2D list :
-	for i in query_tables :
+	'''for i in query_tables :
 		fileData = []
 		try :
-			with open('./files/'+i+'.csv','r') as f:
+			with open(i+'.csv','r') as f:
 				reader = csv.reader(f)
 				for row in reader:
 					fileData.append(row)
+				files.append(fileData)
+		except IOError as error :
+			print(error)'''
+
+	for i in query_tables :
+		fileData = []
+		try :
+			with open(i+'.csv','r') as f:
+				reader = csv.reader(f)
+				for row in reader:
+					temp_list = row
+					for i in temp_list :
+						stripped = i.strip()
+						if(stripped.startswith('"') and stripped.endswith('"')) :
+							print("inside if")
+							temp_list[i] = int(temp_list[i])
+					fileData.append(temp_list)
 				files.append(fileData)
 		except IOError as error :
 			print(error)
@@ -406,9 +441,10 @@ def crossProduct(query_tables,result_list,dic) :
 
 
 
+#Main function 
 if __name__ == '__main__' :
 	getMetaData()
-	query = input("Enter a query :")
+	query = sys.argv[1]
 	processQuery(query)
 
 	
